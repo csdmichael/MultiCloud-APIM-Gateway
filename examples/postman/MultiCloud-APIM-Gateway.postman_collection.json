@@ -1,0 +1,155 @@
+{
+    "info": {
+        "_postman_id": "a4b1a6f8-1d33-4f2e-9e5e-mcgw0000001",
+        "name": "MultiCloud APIM Gateway",
+        "description": "Demo collection for the Multi-Cloud APIM Gateway. Acquires a Microsoft Entra ID JWT via client_credentials, then exercises the APIM gateway + the AWS API Gateway (Cognito JWT). Replace the variables in the collection or environment with your tenant / app values.",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "auth": {
+        "type": "bearer",
+        "bearer": [
+            { "key": "token", "value": "{{azure_access_token}}", "type": "string" }
+        ]
+    },
+    "variable": [
+        { "key": "tenantId",       "value": "<entra-tenant-id>" },
+        { "key": "clientId",       "value": "<entra-app-client-id>" },
+        { "key": "clientSecret",   "value": "<entra-app-client-secret>" },
+        { "key": "audience",       "value": "api://apim-gateway" },
+        { "key": "apimHost",       "value": "apim-poc-my-dev.azure-api.net" },
+        { "key": "apiPath",        "value": "/worldcup/teams" },
+        { "key": "awsApiBase",     "value": "<aws-api-invoke-url>" },
+        { "key": "cognitoTokenUrl","value": "<https://<domain>.auth.<region>.amazoncognito.com/oauth2/token>" },
+        { "key": "cognitoClientId","value": "<cognito-m2m-client-id>" },
+        { "key": "cognitoClientSecret","value": "<cognito-m2m-client-secret>" },
+        { "key": "cognitoScope",   "value": "https://mcgw-dev.api/read" },
+        { "key": "azure_access_token", "value": "" },
+        { "key": "aws_access_token",   "value": "" }
+    ],
+    "item": [
+        {
+            "name": "1. Acquire Entra JWT (client_credentials)",
+            "request": {
+                "method": "POST",
+                "url": "https://login.microsoftonline.com/{{tenantId}}/oauth2/v2.0/token",
+                "header": [{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }],
+                "body": {
+                    "mode": "urlencoded",
+                    "urlencoded": [
+                        { "key": "grant_type",   "value": "client_credentials" },
+                        { "key": "client_id",    "value": "{{clientId}}" },
+                        { "key": "client_secret","value": "{{clientSecret}}" },
+                        { "key": "scope",        "value": "{{audience}}/.default" }
+                    ]
+                }
+            },
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "const json = pm.response.json();",
+                            "pm.collectionVariables.set('azure_access_token', json.access_token);",
+                            "pm.test('Got Entra access token', () => pm.expect(json.access_token).to.be.a('string'));"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "2. APIM - GET /worldcup/teams (valid token, expect 200)",
+            "request": {
+                "method": "GET",
+                "url": "https://{{apimHost}}{{apiPath}}",
+                "header": [
+                    { "key": "Authorization", "value": "Bearer {{azure_access_token}}" },
+                    { "key": "x-correlation-id", "value": "{{$guid}}" }
+                ]
+            }
+        },
+        {
+            "name": "3. APIM - GET /worldcup/teams (invalid token, expect 401)",
+            "request": {
+                "method": "GET",
+                "url": "https://{{apimHost}}{{apiPath}}",
+                "header": [
+                    { "key": "Authorization", "value": "Bearer invalid.invalid.invalid" }
+                ]
+            }
+        },
+        {
+            "name": "4. APIM - Throttle burst (run via Collection Runner with N=50+)",
+            "request": {
+                "method": "GET",
+                "url": "https://{{apimHost}}{{apiPath}}",
+                "header": [
+                    { "key": "Authorization", "value": "Bearer {{azure_access_token}}" },
+                    { "key": "x-correlation-id", "value": "{{$guid}}" }
+                ]
+            }
+        },
+        {
+            "name": "5. AWS - Acquire Cognito JWT (client_credentials)",
+            "request": {
+                "method": "POST",
+                "url": "{{cognitoTokenUrl}}",
+                "auth": {
+                    "type": "basic",
+                    "basic": [
+                        { "key": "username", "value": "{{cognitoClientId}}" },
+                        { "key": "password", "value": "{{cognitoClientSecret}}" }
+                    ]
+                },
+                "header": [{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }],
+                "body": {
+                    "mode": "urlencoded",
+                    "urlencoded": [
+                        { "key": "grant_type", "value": "client_credentials" },
+                        { "key": "scope", "value": "{{cognitoScope}}" }
+                    ]
+                }
+            },
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "exec": [
+                            "const json = pm.response.json();",
+                            "pm.collectionVariables.set('aws_access_token', json.access_token);",
+                            "pm.test('Got Cognito access token', () => pm.expect(json.access_token).to.be.a('string'));"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "6. AWS - GET /teams (Cognito JWT, expect 200)",
+            "request": {
+                "method": "GET",
+                "url": "{{awsApiBase}}/teams",
+                "header": [
+                    { "key": "Authorization", "value": "Bearer {{aws_access_token}}" }
+                ]
+            }
+        },
+        {
+            "name": "7. AWS - GET /openapi.json (Cognito JWT)",
+            "request": {
+                "method": "GET",
+                "url": "{{awsApiBase}}/openapi.json",
+                "header": [
+                    { "key": "Authorization", "value": "Bearer {{aws_access_token}}" }
+                ]
+            }
+        },
+        {
+            "name": "8. AWS - GET /health (anonymous, liveness)",
+            "request": {
+                "method": "GET",
+                "url": "{{awsApiBase}}/health"
+            }
+        }
+    ]
+}

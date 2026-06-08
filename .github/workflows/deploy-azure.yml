@@ -1,0 +1,81 @@
+name: deploy-azure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/bicep/**'
+      - 'policies/**'
+      - '.github/workflows/deploy-azure.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/bicep/**'
+      - 'policies/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC federation to Azure
+  contents: read
+
+env:
+  AZURE_SUBSCRIPTION_ID: 86b37969-9445-49cf-b03f-d8866235171c
+  AZURE_RESOURCE_GROUP:  ai-myaacoub
+  BICEP_TEMPLATE:        infra/bicep/main.bicep
+  BICEP_PARAMETERS:      infra/bicep/main.dev.bicepparam
+
+jobs:
+  what-if:
+    name: Bicep what-if
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Bicep build (lint)
+        run: az bicep build --file ${{ env.BICEP_TEMPLATE }}
+
+      - name: What-if
+        run: |
+          az deployment group what-if \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --template-file ${{ env.BICEP_TEMPLATE }} \
+            --parameters ${{ env.BICEP_PARAMETERS }}
+
+  deploy:
+    name: Bicep deploy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy
+        id: deploy
+        run: |
+          deployment_name="mcgw-$(date -u +%Y%m%d%H%M%S)"
+          az deployment group create \
+            --name "$deployment_name" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --template-file ${{ env.BICEP_TEMPLATE }} \
+            --parameters ${{ env.BICEP_PARAMETERS }} \
+            --output json > deploy-output.json
+          echo "deployment_name=$deployment_name" >> "$GITHUB_OUTPUT"
+
+      - name: Show outputs
+        run: |
+          jq '.properties.outputs' deploy-output.json || true

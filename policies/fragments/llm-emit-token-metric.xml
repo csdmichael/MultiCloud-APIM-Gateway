@@ -1,0 +1,37 @@
+<!--
+============================================================================
+    Multi-Cloud APIM Gateway — Fragment: llm-emit-token-metric
+    ------------------------------------------------------------------------
+    Purpose:
+        Emits identity-rich, environment-rich custom dimensions on the
+        token metric to Application Insights.
+
+    Dimensions:
+        UserId      - oid claim
+        UserName    - preferred_username (or upn fallback)
+        TenantId    - tid
+        Group       - primary group object id (first in groupsCsv) or "none"
+        Environment - {{environmentName}}
+        ApiName     - context.Api.Name
+        Outcome     - "ok" (overridden later in 429/403 handlers)
+============================================================================
+-->
+<fragment>
+    <llm-emit-token-metric namespace="MultiCloudApimGateway">
+        <dimension name="UserId" value="@((string)context.Variables.GetValueOrDefault("oid","unknown"))" />
+        <dimension name="UserName" value="@(
+            ((string)context.Variables.GetValueOrDefault("preferredUsername","")).Length > 0
+                ? (string)context.Variables["preferredUsername"]
+                : (string)context.Variables.GetValueOrDefault("upn","unknown")
+        )" />
+        <dimension name="TenantId" value="@((string)context.Variables.GetValueOrDefault("tid","unknown"))" />
+        <dimension name="Group" value="@(
+            ((string)context.Variables.GetValueOrDefault("primaryGroup","")).Length > 0
+                ? (string)context.Variables["primaryGroup"]
+                : "none"
+        )" />
+        <dimension name="Environment" value="{{environmentName}}" />
+        <dimension name="ApiName" value="@(context.Api.Name)" />
+        <dimension name="Outcome" value="ok" />
+    </llm-emit-token-metric>
+</fragment>

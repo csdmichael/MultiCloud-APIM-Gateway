@@ -1,0 +1,43 @@
+<!--
+============================================================================
+    Multi-Cloud APIM Gateway — Fragment: validate-azure-ad-token
+    ------------------------------------------------------------------------
+    Purpose:
+        Validates the inbound Bearer token issued by Microsoft Entra ID
+        (federated from AWS IAM Identity Center).
+
+    Checks performed by validate-azure-ad-token:
+        * tenant-id match
+        * audience match
+        * client-application-id match
+        * signature, issuer, expiration (built-in)
+
+    The validated JWT is exposed to downstream policies as
+        context.Variables["jwt"]   (a JsonWebToken instance)
+
+    Named Values consumed:
+        {{tenantId}}          - Entra tenant
+        {{apimAudience}}      - Expected aud claim
+        {{apimClientAppId}}   - Expected azp / appid claim
+
+    Returns 401 with WWW-Authenticate on failure.
+============================================================================
+-->
+<fragment>
+    <validate-azure-ad-token
+        tenant-id="{{tenantId}}"
+        header-name="Authorization"
+        failed-validation-httpcode="401"
+        failed-validation-error-message="Unauthorized: invalid or missing JWT"
+        output-token-variable-name="jwt">
+
+        <audiences>
+            <audience>{{apimAudience}}</audience>
+        </audiences>
+
+        <client-application-ids>
+            <application-id>{{apimClientAppId}}</application-id>
+        </client-application-ids>
+
+    </validate-azure-ad-token>
+</fragment>

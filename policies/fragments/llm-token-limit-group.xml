@@ -1,0 +1,53 @@
+<!--
+============================================================================
+    Multi-Cloud APIM Gateway — Fragment: llm-token-limit (per group, optional)
+    ------------------------------------------------------------------------
+    Purpose:
+        OPTIONAL group-level token throttling. Applies only when:
+          1) {{governedGroupObjectId}} is non-empty, AND
+          2) the validated JWT carries that group object id in `groups`.
+
+    Counter key strategy:
+        counter-key = governedGroupObjectId
+            -> All members of the chosen Entra group share the bucket.
+        Tradeoffs:
+            + Easy to reason about for SOC / FinOps.
+            + Lets organisations enforce "Premium" vs "Standard" tiers.
+            - Coarse: a single noisy user can exhaust the group bucket.
+            - Requires accurate group membership and group claims emission
+              (configure Entra app registration to emit `groups` for the
+              relevant group). Users with too many memberships hit the
+              Graph overage limit and lose the claim — fall back to
+              per-user enforcement (see llm-token-limit-user.xml).
+
+    Named Values consumed:
+        {{governedGroupObjectId}}  - object id; empty disables this rule
+        {{tokensPerMinuteGroup}}   - integer, group TPM
+        {{tokenQuotaGroupPerHour}} - integer, group hourly cap
+============================================================================
+-->
+<fragment>
+    <choose>
+        <when condition="@(
+            !string.IsNullOrEmpty(context.Variables.GetValueOrDefault("groupsCsv", string.Empty) as string)
+            && !string.IsNullOrEmpty("{{governedGroupObjectId}}")
+            && ((string)context.Variables["groupsCsv"]).Split(',').Contains("{{governedGroupObjectId}}")
+        )">
+            <llm-token-limit
+                counter-key="@("group:" + "{{governedGroupObjectId}}")"
+                tokens-per-minute="{{tokensPerMinuteGroup}}"
+                token-quota="{{tokenQuotaGroupPerHour}}"
+                token-quota-period="Hourly"
+                estimate-prompt-tokens="true"
+                tokens-consumed-header-name="x-mcgw-group-tokens-consumed"
+                remaining-tokens-header-name="x-mcgw-group-tokens-remaining"
+                retry-after-header-name="Retry-After" />
+        </when>
+        <otherwise>
+            <!-- Group-level limit not applicable; per-user limit still applies. -->
+            <set-header name="x-mcgw-group-governance" exists-action="override">
+                <value>not-applicable</value>
+            </set-header>
+        </otherwise>
+    </choose>
+</fragment>

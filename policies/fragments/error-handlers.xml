@@ -1,0 +1,101 @@
+<!--
+============================================================================
+    Multi-Cloud APIM Gateway — Fragment: error-handlers
+    ------------------------------------------------------------------------
+    Purpose:
+        Normalises error responses for:
+            401 - invalid / missing / malformed JWT
+            403 - quota exceeded (mapped from token-quota breach)
+            429 - rate / token-per-minute limit hit
+            500 - everything else (last resort)
+
+    Notes on outcomes:
+        * llm-token-limit returns 429 by default. When the *hourly token
+          quota* is exhausted (vs TPM), we re-classify to 403 here so the
+          consumer can distinguish "slow down" from "you're out of budget".
+============================================================================
+-->
+<fragment>
+    <choose>
+        <when condition="@(context.Response.StatusCode == 401)">
+            <return-response>
+                <set-status code="401" reason="Unauthorized" />
+                <set-header name="Content-Type" exists-action="override">
+                    <value>application/json</value>
+                </set-header>
+                <set-header name="WWW-Authenticate" exists-action="override">
+                    <value>Bearer error="invalid_token"</value>
+                </set-header>
+                <set-body>@{
+                    return new JObject(
+                        new JProperty("error", "unauthorized"),
+                        new JProperty("message", "JWT validation failed. Confirm tenantId, audience, and client-application-id."),
+                        new JProperty("correlationId", context.RequestId)
+                    ).ToString();
+                }</set-body>
+            </return-response>
+        </when>
+
+        <when condition="@(context.Response.StatusCode == 429)">
+            <!-- Detect quota-vs-TPM by looking at the limit response headers we set. -->
+            <set-variable name="isQuotaBreach" value="@{
+                var consumedHeader = context.Response.Headers.GetValueOrDefault("x-mcgw-user-tokens-consumed", "0");
+                int.TryParse(consumedHeader, out var consumed);
+                int quota = 0; int.TryParse("{{tokenQuotaUserPerHour}}", out quota);
+                return quota > 0 && consumed >= quota;
+            }" />
+            <choose>
+                <when condition="@((bool)context.Variables["isQuotaBreach"])">
+                    <return-response>
+                        <set-status code="403" reason="Forbidden" />
+                        <set-header name="Content-Type" exists-action="override">
+                            <value>application/json</value>
+                        </set-header>
+                        <set-body>@{
+                            return new JObject(
+                                new JProperty("error", "quota_exceeded"),
+                                new JProperty("message", "Hourly token quota exhausted for this identity."),
+                                new JProperty("correlationId", context.RequestId)
+                            ).ToString();
+                        }</set-body>
+                    </return-response>
+                </when>
+                <otherwise>
+                    <return-response>
+                        <set-status code="429" reason="Too Many Requests" />
+                        <set-header name="Content-Type" exists-action="override">
+                            <value>application/json</value>
+                        </set-header>
+                        <set-header name="Retry-After" exists-action="override">
+                            <value>@(context.Response.Headers.GetValueOrDefault("Retry-After","30"))</value>
+                        </set-header>
+                        <set-body>@{
+                            return new JObject(
+                                new JProperty("error", "rate_limited"),
+                                new JProperty("message", "Tokens-per-minute limit reached for this identity."),
+                                new JProperty("retryAfterSeconds", context.Response.Headers.GetValueOrDefault("Retry-After","30")),
+                                new JProperty("correlationId", context.RequestId)
+                            ).ToString();
+                        }</set-body>
+                    </return-response>
+                </otherwise>
+            </choose>
+        </when>
+
+        <when condition="@(context.Response.StatusCode >= 500)">
+            <return-response>
+                <set-status code="500" reason="Internal Server Error" />
+                <set-header name="Content-Type" exists-action="override">
+                    <value>application/json</value>
+                </set-header>
+                <set-body>@{
+                    return new JObject(
+                        new JProperty("error", "internal_error"),
+                        new JProperty("message", "An unexpected error occurred in the APIM gateway."),
+                        new JProperty("correlationId", context.RequestId)
+                    ).ToString();
+                }</set-body>
+            </return-response>
+        </when>
+    </choose>
+</fragment>

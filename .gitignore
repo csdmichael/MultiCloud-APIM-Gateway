@@ -1,0 +1,73 @@
+# -----------------------------------------------------------------------------
+# Multi-Cloud APIM Gateway — .gitignore
+# -----------------------------------------------------------------------------
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+
+# Secrets / local config
+*.env
+.env
+.env.*
+*.pem
+*.pfx
+*.key
+*.cer
+*.crt
+secrets/
+**/secrets.*
+azd.env
+
+# Azure Bicep / ARM build artifacts
+*.tfstate.lock.info
+*.bicep.json
+*.tmp.json
+
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+!*.tfvars.example
+!**/dev.tfvars.example
+.terragrunt-cache/
+terraform.rc
+.terraformrc
+
+# Node / Lambda build output
+node_modules/
+dist/
+build/
+*.zip
+*.tar.gz
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python (in case helpers added later)
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Test output
+coverage/
+*.lcov
+.nyc_output/
+
+# Postman scratch
+*.postman_environment.local.json

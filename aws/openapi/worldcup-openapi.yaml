@@ -1,0 +1,92 @@
+# =============================================================================
+# AWS — World Cup 2026 (mocked) OpenAPI spec
+# -----------------------------------------------------------------------------
+# Duplicate of the spec the Lambda serves at /openapi.json. Kept here so
+# tooling (Postman import, Spectral lint, codegen) can use it without hitting
+# the deployed gateway.
+# =============================================================================
+openapi: 3.0.3
+info:
+  title: World Cup 2026 (AWS, mocked)
+  version: 1.0.0
+  description: >
+    Returns a static FIFA World Cup 2026 JSON payload. Secured by an AWS
+    Cognito User Pool JWT authorizer in front of API Gateway HTTP API.
+servers:
+  - url: https://REPLACE_WITH_INVOKE_URL
+    description: Stage URL (filled in after `terraform apply`; see outputs.tf)
+security:
+  - CognitoJwt: []
+paths:
+  /teams:
+    get:
+      summary: Get World Cup 2026 teams
+      description: Returns the hard-coded host countries, groups, and teams.
+      responses:
+        "200":
+          description: World Cup payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorldCupPayload"
+        "401":
+          description: Missing or invalid JWT
+  /swagger:
+    get:
+      summary: Swagger UI
+      responses:
+        "200":
+          description: HTML page
+  /openapi.json:
+    get:
+      summary: OpenAPI spec (machine readable)
+      responses:
+        "200":
+          description: OpenAPI 3 document
+          content:
+            application/json:
+              schema:
+                type: object
+  /health:
+    get:
+      summary: Liveness probe (unauthenticated)
+      security: []
+      responses:
+        "200":
+          description: OK
+components:
+  securitySchemes:
+    CognitoJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Cognito User Pool-issued JWT. In production AWS SSO / IAM Identity
+        Center is federated with Microsoft Entra ID and proxies tokens.
+  schemas:
+    WorldCupPayload:
+      type: object
+      properties:
+        tournament:
+          type: string
+        hostCountries:
+          type: array
+          items:
+            type: string
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              group:
+                type: string
+              teams:
+                type: array
+                items:
+                  type: string
+        responseType:
+          type: string
+        authentication:
+          type: string
+        source:
+          type: string

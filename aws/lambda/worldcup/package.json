@@ -1,0 +1,13 @@
+{
+    "name": "worldcup-aws-lambda",
+    "version": "1.0.0",
+    "description": "Mocked World Cup 2026 API + Swagger UI for AWS API Gateway HTTP API.",
+    "main": "index.js",
+    "private": true,
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "test": "node -e \"require('./index.js'); console.log('ok')\""
+    }
+}

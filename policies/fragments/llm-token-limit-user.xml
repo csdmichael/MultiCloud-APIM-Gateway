@@ -1,0 +1,38 @@
+<!--
+============================================================================
+    Multi-Cloud APIM Gateway — Fragment: llm-token-limit (per user)
+    ------------------------------------------------------------------------
+    Purpose:
+        Enforces a token-per-minute (TPM) and hourly quota on a per-user
+        basis using the AI-Gateway `llm-token-limit` policy.
+
+    Why estimate-prompt-tokens="true":
+        The downstream backend in this demo is mocked (return-response). No
+        real LLM response is parsed, so the policy is operated in
+        prompt-estimation mode. This still meters input tokens (request
+        body) per user and emits realistic 429 / Retry-After behavior.
+
+    Counter key strategy:
+        counter-key = oid     -> stable, per-Entra-user (preferred)
+        Avoid keying on `upn`/`preferred_username` (mutable on rename).
+
+    Behavior on limit breach:
+        * HTTP 429 + Retry-After header (configurable headers added).
+        * Subsequent retries return 429 until the counter window rolls over.
+
+    Named Values consumed:
+        {{tokensPerMinuteUser}}    - integer, tokens-per-minute per user
+        {{tokenQuotaUserPerHour}}  - integer, hourly cap per user
+============================================================================
+-->
+<fragment>
+    <llm-token-limit
+        counter-key="@((string)context.Variables["oid"])"
+        tokens-per-minute="{{tokensPerMinuteUser}}"
+        token-quota="{{tokenQuotaUserPerHour}}"
+        token-quota-period="Hourly"
+        estimate-prompt-tokens="true"
+        tokens-consumed-header-name="x-mcgw-user-tokens-consumed"
+        remaining-tokens-header-name="x-mcgw-user-tokens-remaining"
+        retry-after-header-name="Retry-After" />
+</fragment>

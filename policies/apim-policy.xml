@@ -1,0 +1,266 @@
+<!--
+============================================================================
+    Multi-Cloud APIM Gateway — Composed API Policy
+    ------------------------------------------------------------------------
+    Scope:        API ("worldcup-mocked")
+    Operations:   GET /teams (mocked)
+    Inbound chain:
+        1. JWT validation                (Entra)
+        2. Claims extraction             (oid, tid, sub, groups, ...)
+        3. Per-user llm-token-limit      (TPM + quota, counter-key = oid)
+        4. Per-group llm-token-limit     (optional, governed group only)
+        5. Emit token telemetry          (App Insights custom metric)
+        6. Return mocked World Cup JSON  (return-response)
+
+    Outbound / on-error: error normalisation (401 / 403 / 429 / 500).
+
+    See /policies/fragments/*.xml for the well-documented building blocks
+    that mirror each section below 1:1. Update both when you change one.
+============================================================================
+-->
+<policies>
+    <inbound>
+        <base />
+
+        <!-- ============================================================
+             1) Validate Entra JWT
+             ============================================================ -->
+        <validate-azure-ad-token
+            tenant-id="{{tenantId}}"
+            header-name="Authorization"
+            failed-validation-httpcode="401"
+            failed-validation-error-message="Unauthorized: invalid or missing JWT"
+            output-token-variable-name="jwt">
+            <audiences>
+                <audience>{{apimAudience}}</audience>
+            </audiences>
+            <client-application-ids>
+                <application-id>{{apimClientAppId}}</application-id>
+            </client-application-ids>
+        </validate-azure-ad-token>
+
+        <!-- ============================================================
+             2) Extract identity claims into context variables
+             ============================================================ -->
+        <set-variable name="oid" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("oid", ""))" />
+        <set-variable name="tid" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("tid", ""))" />
+        <set-variable name="sub" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("sub", ""))" />
+        <set-variable name="preferredUsername" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("preferred_username", ""))" />
+        <set-variable name="upn" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("upn", ""))" />
+
+        <set-variable name="groupsCsv" value="@{
+            var jwt = (Jwt)context.Variables["jwt"];
+            if (jwt.Claims == null) { return ""; }
+            var values = jwt.Claims
+                .Where(c => string.Equals(c.Key, "groups", StringComparison.OrdinalIgnoreCase))
+                .Select(c => c.Value);
+            return values != null ? string.Join(",", values) : "";
+        }" />
+
+        <set-variable name="primaryGroup" value="@{
+            var csv = (string)context.Variables["groupsCsv"];
+            if (string.IsNullOrEmpty(csv)) { return ""; }
+            return csv.Split(',')[0];
+        }" />
+
+        <set-header name="x-mcgw-user-oid" exists-action="override">
+            <value>@((string)context.Variables["oid"])</value>
+        </set-header>
+        <set-header name="x-mcgw-tenant" exists-action="override">
+            <value>@((string)context.Variables["tid"])</value>
+        </set-header>
+
+        <!-- ============================================================
+             3) Per-user llm-token-limit (always-on, counter-key = oid)
+             ============================================================ -->
+        <llm-token-limit
+            counter-key="@((string)context.Variables["oid"])"
+            tokens-per-minute="{{tokensPerMinuteUser}}"
+            token-quota="{{tokenQuotaUserPerHour}}"
+            token-quota-period="Hourly"
+            estimate-prompt-tokens="true"
+            tokens-consumed-header-name="x-mcgw-user-tokens-consumed"
+            remaining-tokens-header-name="x-mcgw-user-tokens-remaining"
+            retry-after-header-name="Retry-After" />
+
+        <!-- ============================================================
+             4) Per-group llm-token-limit (optional, only when applicable)
+             ============================================================ -->
+        <choose>
+            <when condition="@(
+                !string.IsNullOrEmpty(context.Variables.GetValueOrDefault("groupsCsv", string.Empty) as string)
+                && !string.IsNullOrEmpty("{{governedGroupObjectId}}")
+                && ((string)context.Variables["groupsCsv"]).Split(',').Contains("{{governedGroupObjectId}}")
+            )">
+                <llm-token-limit
+                    counter-key="@("group:" + "{{governedGroupObjectId}}")"
+                    tokens-per-minute="{{tokensPerMinuteGroup}}"
+                    token-quota="{{tokenQuotaGroupPerHour}}"
+                    token-quota-period="Hourly"
+                    estimate-prompt-tokens="true"
+                    tokens-consumed-header-name="x-mcgw-group-tokens-consumed"
+                    remaining-tokens-header-name="x-mcgw-group-tokens-remaining"
+                    retry-after-header-name="Retry-After" />
+            </when>
+            <otherwise>
+                <set-header name="x-mcgw-group-governance" exists-action="override">
+                    <value>not-applicable</value>
+                </set-header>
+            </otherwise>
+        </choose>
+
+        <!-- ============================================================
+             5) Emit identity-rich token telemetry to Application Insights
+             ============================================================ -->
+        <llm-emit-token-metric namespace="MultiCloudApimGateway">
+            <dimension name="UserId" value="@((string)context.Variables.GetValueOrDefault("oid","unknown"))" />
+            <dimension name="UserName" value="@(
+                ((string)context.Variables.GetValueOrDefault("preferredUsername","")).Length > 0
+                    ? (string)context.Variables["preferredUsername"]
+                    : (string)context.Variables.GetValueOrDefault("upn","unknown")
+            )" />
+            <dimension name="TenantId" value="@((string)context.Variables.GetValueOrDefault("tid","unknown"))" />
+            <dimension name="Group" value="@(
+                ((string)context.Variables.GetValueOrDefault("primaryGroup","")).Length > 0
+                    ? (string)context.Variables["primaryGroup"]
+                    : "none"
+            )" />
+            <dimension name="Environment" value="{{environmentName}}" />
+            <dimension name="ApiName" value="@(context.Api.Name)" />
+            <dimension name="Outcome" value="ok" />
+        </llm-emit-token-metric>
+
+        <!-- ============================================================
+             6) Return MOCKED World Cup 2026 JSON — NO backend is called
+             ============================================================ -->
+        <return-response>
+            <set-status code="200" reason="OK" />
+            <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+            </set-header>
+            <set-header name="x-mcgw-mocked" exists-action="override">
+                <value>true</value>
+            </set-header>
+            <set-header name="x-mcgw-environment" exists-action="override">
+                <value>{{environmentName}}</value>
+            </set-header>
+            <set-header name="x-mcgw-user" exists-action="override">
+                <value>@((string)context.Variables.GetValueOrDefault("preferredUsername", (string)context.Variables.GetValueOrDefault("upn","")))</value>
+            </set-header>
+            <set-body>@{
+                return new JObject(
+                    new JProperty("tournament", "FIFA World Cup 2026"),
+                    new JProperty("hostCountries", new JArray("United States", "Canada", "Mexico")),
+                    new JProperty("groups", new JArray(
+                        new JObject(
+                            new JProperty("group", "A"),
+                            new JProperty("teams", new JArray("United States", "Germany", "Japan", "Mexico"))
+                        ),
+                        new JObject(
+                            new JProperty("group", "B"),
+                            new JProperty("teams", new JArray("Brazil", "France", "England", "South Korea"))
+                        )
+                    )),
+                    new JProperty("responseType", "Mocked APIM response"),
+                    new JProperty("authentication", "AWS SSO federated through Microsoft Entra ID"),
+                    new JProperty("governance", "Per-user and per-group APIM token governance enabled")
+                ).ToString();
+            }</set-body>
+        </return-response>
+    </inbound>
+
+    <backend>
+        <!-- Intentionally empty — return-response above short-circuits the pipeline. -->
+        <base />
+    </backend>
+
+    <outbound>
+        <base />
+    </outbound>
+
+    <on-error>
+        <base />
+        <!-- Normalise common failure modes to clean JSON envelopes. -->
+        <choose>
+            <when condition="@(context.Response.StatusCode == 401)">
+                <return-response>
+                    <set-status code="401" reason="Unauthorized" />
+                    <set-header name="Content-Type" exists-action="override">
+                        <value>application/json</value>
+                    </set-header>
+                    <set-header name="WWW-Authenticate" exists-action="override">
+                        <value>Bearer error="invalid_token"</value>
+                    </set-header>
+                    <set-body>@{
+                        return new JObject(
+                            new JProperty("error", "unauthorized"),
+                            new JProperty("message", "JWT validation failed. Confirm tenantId, audience, and client-application-id."),
+                            new JProperty("correlationId", context.RequestId)
+                        ).ToString();
+                    }</set-body>
+                </return-response>
+            </when>
+
+            <when condition="@(context.Response.StatusCode == 429)">
+                <set-variable name="isQuotaBreach" value="@{
+                    var consumedHeader = context.Response.Headers.GetValueOrDefault("x-mcgw-user-tokens-consumed", "0");
+                    int.TryParse(consumedHeader, out var consumed);
+                    int quota = 0; int.TryParse("{{tokenQuotaUserPerHour}}", out quota);
+                    return quota > 0 && consumed >= quota;
+                }" />
+                <choose>
+                    <when condition="@((bool)context.Variables["isQuotaBreach"])">
+                        <return-response>
+                            <set-status code="403" reason="Forbidden" />
+                            <set-header name="Content-Type" exists-action="override">
+                                <value>application/json</value>
+                            </set-header>
+                            <set-body>@{
+                                return new JObject(
+                                    new JProperty("error", "quota_exceeded"),
+                                    new JProperty("message", "Hourly token quota exhausted for this identity."),
+                                    new JProperty("correlationId", context.RequestId)
+                                ).ToString();
+                            }</set-body>
+                        </return-response>
+                    </when>
+                    <otherwise>
+                        <return-response>
+                            <set-status code="429" reason="Too Many Requests" />
+                            <set-header name="Content-Type" exists-action="override">
+                                <value>application/json</value>
+                            </set-header>
+                            <set-header name="Retry-After" exists-action="override">
+                                <value>@(context.Response.Headers.GetValueOrDefault("Retry-After","30"))</value>
+                            </set-header>
+                            <set-body>@{
+                                return new JObject(
+                                    new JProperty("error", "rate_limited"),
+                                    new JProperty("message", "Tokens-per-minute limit reached for this identity."),
+                                    new JProperty("retryAfterSeconds", context.Response.Headers.GetValueOrDefault("Retry-After","30")),
+                                    new JProperty("correlationId", context.RequestId)
+                                ).ToString();
+                            }</set-body>
+                        </return-response>
+                    </otherwise>
+                </choose>
+            </when>
+
+            <when condition="@(context.Response.StatusCode >= 500)">
+                <return-response>
+                    <set-status code="500" reason="Internal Server Error" />
+                    <set-header name="Content-Type" exists-action="override">
+                        <value>application/json</value>
+                    </set-header>
+                    <set-body>@{
+                        return new JObject(
+                            new JProperty("error", "internal_error"),
+                            new JProperty("message", "An unexpected error occurred in the APIM gateway."),
+                            new JProperty("correlationId", context.RequestId)
+                        ).ToString();
+                    }</set-body>
+                </return-response>
+            </when>
+        </choose>
+    </on-error>
+</policies>

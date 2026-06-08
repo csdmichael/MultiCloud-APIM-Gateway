@@ -1,0 +1,55 @@
+<!--
+============================================================================
+    Multi-Cloud APIM Gateway — Fragment: mock-response
+    ------------------------------------------------------------------------
+    Purpose:
+        Returns the hard-coded World Cup 2026 JSON. No backend is called,
+        which means zero AWS Bedrock / Anthropic / OpenAI inference cost.
+
+    Why return-response (not mock-response):
+        * `return-response` short-circuits the pipeline cleanly and is the
+          recommended pattern for synthesised payloads.
+        * `mock-response` requires sample responses on the Operation — also
+          valid but adds API-design state. Either approach works; see
+          /docs/migration-to-bedrock.md for swap-out instructions.
+
+    The response body is sent verbatim. Identity-aware headers are also
+    set so demos can inspect routing decisions from the client.
+============================================================================
+-->
+<fragment>
+    <return-response>
+        <set-status code="200" reason="OK" />
+        <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+        </set-header>
+        <set-header name="x-mcgw-mocked" exists-action="override">
+            <value>true</value>
+        </set-header>
+        <set-header name="x-mcgw-environment" exists-action="override">
+            <value>{{environmentName}}</value>
+        </set-header>
+        <set-header name="x-mcgw-user" exists-action="override">
+            <value>@((string)context.Variables.GetValueOrDefault("preferredUsername", (string)context.Variables.GetValueOrDefault("upn","")))</value>
+        </set-header>
+        <set-body>@{
+            return new JObject(
+                new JProperty("tournament", "FIFA World Cup 2026"),
+                new JProperty("hostCountries", new JArray("United States", "Canada", "Mexico")),
+                new JProperty("groups", new JArray(
+                    new JObject(
+                        new JProperty("group", "A"),
+                        new JProperty("teams", new JArray("United States", "Germany", "Japan", "Mexico"))
+                    ),
+                    new JObject(
+                        new JProperty("group", "B"),
+                        new JProperty("teams", new JArray("Brazil", "France", "England", "South Korea"))
+                    )
+                )),
+                new JProperty("responseType", "Mocked APIM response"),
+                new JProperty("authentication", "AWS SSO federated through Microsoft Entra ID"),
+                new JProperty("governance", "Per-user and per-group APIM token governance enabled")
+            ).ToString();
+        }</set-body>
+    </return-response>
+</fragment>

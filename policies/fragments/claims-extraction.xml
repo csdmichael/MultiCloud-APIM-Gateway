@@ -1,0 +1,62 @@
+<!--
+============================================================================
+    Multi-Cloud APIM Gateway — Fragment: claims-extraction
+    ------------------------------------------------------------------------
+    Purpose:
+        Extracts the identity claims required for governance, telemetry,
+        and downstream business logic from the validated JWT.
+
+    Variables produced:
+        oid                 - Entra user object id (stable user identifier)
+        tid                 - Entra tenant id
+        sub                 - Subject claim
+        preferredUsername   - preferred_username claim
+        upn                 - User principal name
+        groupsCsv           - CSV of group object ids ("" if claim missing)
+        primaryGroup        - First entry in groupsCsv (used for grouping in metrics)
+
+    Notes:
+        * Use of `.Claims` on JsonWebToken returns the first claim value or null.
+        * `groups` may be absent if the user is in too many groups (Graph overage).
+          In that case `groupsCsv` is empty and downstream group-level
+          governance is skipped (see fragments/llm-token-limit-group.xml).
+============================================================================
+-->
+<fragment>
+    <set-variable name="oid" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("oid", ""))" />
+    <set-variable name="tid" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("tid", ""))" />
+    <set-variable name="sub" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("sub", ""))" />
+    <set-variable name="preferredUsername" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("preferred_username", ""))" />
+    <set-variable name="upn" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("upn", ""))" />
+
+    <!--
+        `Claims` returns the FIRST value for a claim, but `groups` can be
+        multi-valued. The Jwt parser exposes multi-valued claims as a single
+        comma-separated string when accessed via `Claims["groups"]`, OR via
+        the `ClaimsByName` lookup that returns an enumerable.
+        We normalise to CSV for downstream `Contains()` checks.
+    -->
+    <set-variable name="groupsCsv" value="@{
+        var jwt = (Jwt)context.Variables["jwt"];
+        if (jwt.Claims == null) { return ""; }
+        // Multi-valued claim retrieval: ClaimsByName supports IEnumerable<string>
+        var values = jwt.Claims
+            .Where(c => string.Equals(c.Key, "groups", StringComparison.OrdinalIgnoreCase))
+            .Select(c => c.Value);
+        return values != null ? string.Join(",", values) : "";
+    }" />
+
+    <set-variable name="primaryGroup" value="@{
+        var csv = (string)context.Variables["groupsCsv"];
+        if (string.IsNullOrEmpty(csv)) { return ""; }
+        return csv.Split(',')[0];
+    }" />
+
+    <!-- Echo a correlation header that downstream telemetry/diagnostics can pick up. -->
+    <set-header name="x-mcgw-user-oid" exists-action="override">
+        <value>@((string)context.Variables["oid"])</value>
+    </set-header>
+    <set-header name="x-mcgw-tenant" exists-action="override">
+        <value>@((string)context.Variables["tid"])</value>
+    </set-header>
+</fragment>

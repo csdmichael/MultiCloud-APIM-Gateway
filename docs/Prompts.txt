@@ -1,0 +1,352 @@
+APIM Url: https://portal.azure.com/#@MngEnvMCAP829495.onmicrosoft.com/resource/subscriptions/86b37969-9445-49cf-b03f-d8866235171c/resourceGroups/ai-myaacoub/providers/Microsoft.ApiManagement/service/apim-poc-my-dev/overview
+
+
+# Business Goal
+
+Demonstrate:
+- enterprise JWT validation
+- identity propagation
+- group-aware governance
+- AI gateway token throttling
+- enterprise telemetry
+- APIM AI governance patterns
+
+WITHOUT making real AWS Bedrock or Anthropic inference calls.
+
+
+Create an API on AWS account csdmichael@hotmail.com. 
+- The api return a hard-coded json response that lists teams in world cup 2026. 
+- API authenticates using AWS SSO
+- Add swagger endpoint for api
+Create terraform pipeline to publish api on aws including OAuth using AWS JWT. 
+Create a readme file in root that has TOC 
+- It explains the project description, folder structure
+- It has a section on API that has api url and swagger url
+
+You are a principal Azure API Management, Microsoft Entra ID, and enterprise API security architect.
+
+Build a production-style demo project that demonstrates how Azure API Management (APIM) can validate AWS SSO / Microsoft Entra federated JWT tokens, apply per-user and per-group token governance, and return a mocked hard-coded JSON response instead of calling AWS Bedrock — to avoid inference cost during customer demos.
+
+
+# Architecture
+
+## Identity Flow
+AWS IAM Identity Center (AWS SSO) is already federated with Microsoft Entra ID.
+
+Authentication flow:
+1. User authenticates via AWS SSO
+2. Microsoft Entra ID issues JWT token
+3. Client calls APIM endpoint with Bearer token
+4. APIM validates JWT
+5. APIM extracts user + group claims
+6. APIM applies LLM token governance
+7. APIM returns mocked JSON response
+
+## Important
+DO NOT call:
+- AWS Bedrock
+- Anthropic APIs
+- OpenAI APIs
+
+The project must:
+- mock the backend
+- preserve real JWT validation
+- preserve real governance policies
+- preserve telemetry/logging
+- preserve future transition capability to Bedrock
+
+# Technical Requirements
+
+## Azure Components
+Use:
+- Azure API Management
+- Microsoft Entra ID
+- Application Insights
+- Log Analytics
+
+## APIM Mode
+Use:
+- APIM Internal VNET mode
+
+DO NOT use:
+- self-hosted gateway
+
+# What To Generate
+
+Generate a complete Git repository.
+
+# Repo Structure
+
+/infra
+  /bicep
+
+/policies
+  apim-policy.xml
+  /fragments
+
+/scripts
+  get-token.ps1
+  get-token.sh
+  test-api.sh
+
+/examples
+  curl/
+  postman/
+
+/docs
+  architecture.md
+  implementation-guide.md
+  troubleshooting.md
+  migration-to-bedrock.md
+
+README.md
+
+# Infrastructure as Code
+
+Use Bicep.
+
+Generate Bicep templates for:
+- APIM
+- App Insights
+- Log Analytics
+- Named Values
+- Policy configuration
+- Environment params
+
+Use secure parameterization.
+
+DO NOT hardcode secrets.
+
+# JWT Validation Requirements
+
+Implement APIM policy using:
+validate-azure-ad-token
+
+The token validation must verify:
+- issuer
+- audience
+- tenant
+- expiration
+
+Store validated JWT in output variable.
+
+Use placeholders:
+- tenantId
+- apimAudience
+- apimClientAppId
+
+Example direction:
+
+<validate-azure-ad-token
+    tenant-id="{{tenantId}}"
+    header-name="Authorization"
+    failed-validation-httpcode="401"
+    output-token-variable-name="jwt">
+
+    <audiences>
+        <audience>{{apimAudience}}</audience>
+    </audiences>
+
+    <client-application-ids>
+        <application-id>{{apimClientAppId}}</application-id>
+    </client-application-ids>
+
+</validate-azure-ad-token>
+
+# Claims Extraction
+
+Extract:
+- oid
+- tid
+- sub
+- groups
+- preferred_username
+- upn
+
+Store them into APIM variables.
+
+# Governance Logic
+
+Implement:
+- per-user token enforcement
+- optional per-group token enforcement
+
+Use:
+llm-token-limit policy
+
+Requirements:
+- configurable token-per-minute
+- configurable quota
+- configurable period
+- configurable retry headers
+
+Counter key strategy:
+- user level => oid
+- group level => selected Entra group object id
+
+Document tradeoffs.
+
+# Telemetry
+
+Implement:
+llm-emit-token-metric
+
+Emit:
+- user
+- group
+- environment
+- API name
+- token metrics
+- throttling outcomes
+
+Generate KQL queries for:
+- top users
+- top groups
+- 429 responses
+- 403 responses
+- usage over time
+- usage by API
+- usage by environment
+
+# Mock Backend Requirement
+
+APIM must return a hard-coded JSON response.
+
+DO NOT proxy to a backend.
+
+Use:
+- return-response
+or
+- mock-response
+
+# Hard-Coded JSON Response
+
+Return this response:
+
+{
+  "tournament": "FIFA World Cup 2026",
+  "hostCountries": [
+    "United States",
+    "Canada",
+    "Mexico"
+  ],
+  "groups": [
+    {
+      "group": "A",
+      "teams": [
+        "United States",
+        "Germany",
+        "Japan",
+        "Mexico"
+      ]
+    },
+    {
+      "group": "B",
+      "teams": [
+        "Brazil",
+        "France",
+        "England",
+        "South Korea"
+      ]
+    }
+  ],
+  "responseType": "Mocked APIM response",
+  "authentication": "AWS SSO federated through Microsoft Entra ID",
+  "governance": "Per-user and per-group APIM token governance enabled"
+}
+
+# Response Requirements
+
+APIM policy must:
+- validate JWT
+- extract claims
+- apply governance
+- emit metrics
+- return static JSON
+
+# Error Handling
+
+Generate:
+- 401 invalid token behavior
+- 429 throttled behavior
+- 403 quota exceeded behavior
+- missing groups handling
+- malformed JWT handling
+
+# Mock Cost-Saving Goal
+
+Clearly document:
+This implementation intentionally mocks backend LLM responses to:
+- reduce AWS Bedrock costs
+- validate APIM governance independently
+- demonstrate identity-aware throttling
+- validate JWT propagation safely
+- simulate production architecture
+
+# Test Scripts
+
+Generate:
+- curl examples
+- PowerShell test scripts
+- bash scripts
+- Azure CLI token acquisition examples
+- Postman collection
+
+# Documentation
+
+Generate detailed documentation for:
+- architecture
+- deployment
+- troubleshooting
+- JWT inspection
+- Entra app registration
+- enabling group claims
+- testing governance behavior
+- switching from mocked backend to real AWS Bedrock later
+
+# Future Migration Section
+
+Create a document:
+migration-to-bedrock.md
+
+Explain:
+- what policies must change
+- what backend configuration must change
+- how to replace mocked responses with Bedrock passthrough
+- how to preserve governance with minimal change
+
+# Code Style
+
+Requirements:
+- enterprise-grade
+- highly commented
+- customer-demo friendly
+- minimal dependencies
+- easy to explain live during workshop
+- production-reasonable v1
+
+# Output Instructions
+
+Generate the entire project in phases.
+
+## Phase 1
+Generate:
+- architecture summary
+- assumptions
+- repo structure
+- implementation plan
+
+## Phase 2
+Generate all repository files with full contents.
+
+## Phase 3
+Generate:
+- deployment walkthrough
+- testing walkthrough
+- KQL examples
+- troubleshooting checklist
+- known limitations
+- next-step recommendations
+
+
+commit, publish code. 

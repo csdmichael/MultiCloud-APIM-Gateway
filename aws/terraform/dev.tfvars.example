@@ -1,0 +1,18 @@
+# =============================================================================
+# Multi-Cloud APIM Gateway — AWS Terraform — example tfvars
+# -----------------------------------------------------------------------------
+# Copy to `dev.auto.tfvars` (which is gitignored) and customize.
+# =============================================================================
+
+aws_region            = "us-east-1"
+workload_name         = "mcgw"
+environment_name      = "dev"
+
+# Cognito hosted-UI domain prefix. Leave empty to auto-generate.
+cognito_domain_prefix = ""
+
+# Add the host APIs that you allow Cognito to redirect to.
+cognito_callback_urls = ["http://localhost:8080/callback"]
+cognito_logout_urls   = ["http://localhost:8080/"]
+
+create_machine_to_machine_client = true

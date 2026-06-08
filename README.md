@@ -229,6 +229,21 @@ The two most-hit issues:
 
 See [docs/troubleshooting.md](docs/troubleshooting.md) and [docs/known-limitations.md](docs/known-limitations.md) for the full set.
 
+## AWS cost / Free Tier
+
+The AWS side defaults to a configuration that fits inside **AWS Free Tier**. What's perpetual-free vs time-limited:
+
+| Resource | Free-tier status |
+| --- | --- |
+| IAM role / policy / OIDC provider | Always free |
+| Lambda (`mcgw-dev-worldcup`) | Perpetual free — 1M req + 400K GB-s/month. Defaults to 128 MB / 3 s timeout. |
+| Cognito User Pool + interactive (code-flow) app client | Perpetual free — 50,000 MAU/month |
+| CloudWatch Log Groups (Lambda + API Gateway access logs) | Perpetual free — 5 GB ingest + 5 GB storage/month. Default retention is 7 days. |
+| API Gateway HTTP API | **12-month free tier only** — 1M req/month for the first 12 months of the AWS account, then $1.00 per million requests. No perpetual-free substitute exists for the JWT-protected demo. |
+| Cognito M2M app client (`client_credentials` grant) | **NOT in free tier** — $6 per 1,000 monthly token requests. `create_machine_to_machine_client` defaults to `false` so M2M is opt-in. Flip to `true` only when demoing the M2M flow. |
+
+Mocked Azure costs (APIM Internal VNET, Log Analytics, App Insights) are out of free tier from day 1 — see `infra/bicep/main.bicep` for SKUs.
+
 ## Project status
 
 This is a **demo / reference implementation**. The mocked path is fully functional; the live AWS Bedrock path is documented as a one-policy-block change in [docs/migration-to-bedrock.md](docs/migration-to-bedrock.md). PRs welcome.

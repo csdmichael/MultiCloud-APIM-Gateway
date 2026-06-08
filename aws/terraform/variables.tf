@@ -52,7 +52,7 @@ variable "cognito_domain_prefix" {
   description = "Cognito User Pool hosted-UI domain prefix. Must be globally unique within the region."
   type        = string
   # Default uses a random suffix appended in main.tf so demos don't collide.
-  default     = ""
+  default = ""
 }
 
 variable "cognito_callback_urls" {

@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  GitHub Actions OIDC trust + deploy role for the
+  MultiCloud-APIM-Gateway repo (csdmichael/MultiCloud-APIM-Gateway).
+
+  Creates:
+    * The token.actions.githubusercontent.com IAM OIDC provider
+      (only if it doesn't already exist - delete the resource if
+      your account already has it).
+    * An IAM role 'GitHubActions-MultiCloudApimGateway' that the
+      GitHub workflow assumes via OIDC.
+    * A least-privilege managed policy covering the AWS resources
+      this demo creates (API Gateway v2, Lambda, Cognito, CloudWatch
+      Logs, IAM passrole for the Lambda exec role).
+
+  Deploy with:
+    aws cloudformation deploy \
+      --template-file aws-iam-setup.cfn.yaml \
+      --stack-name multicloud-apim-gateway-github-oidc \
+      --capabilities CAPABILITY_NAMED_IAM \
+      --region us-east-1
+
+  Then copy the RoleArn output into GitHub:
+    gh secret set AWS_DEPLOY_ROLE_ARN --repo csdmichael/MultiCloud-APIM-Gateway --body <RoleArn>
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Default: csdmichael
+    Description: GitHub org/user that owns the repo.
+
+  GitHubRepo:
+    Type: String
+    Default: MultiCloud-APIM-Gateway
+    Description: GitHub repo name.
+
+  RoleName:
+    Type: String
+    Default: GitHubActions-MultiCloudApimGateway
+    Description: Name of the IAM role GitHub Actions will assume.
+
+  CreateOidcProvider:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: |
+      Set to 'false' if the GitHub OIDC provider
+      (arn:aws:iam::<acct>:oidc-provider/token.actions.githubusercontent.com)
+      already exists in this account.
+
+Conditions:
+  ShouldCreateOidcProvider: !Equals [!Ref CreateOidcProvider, 'true']
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      # GitHub OIDC thumbprints are auto-verified by IAM since 2023;
+      # the values below are the historical pair (kept for older AWS partitions).
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      Description: !Sub 'Assumed by GitHub Actions in ${GitHubOrg}/${GitHubRepo} for Terraform deploys.'
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: GitHubActionsOidc
+            Effect: Allow
+            Principal:
+              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub:
+                  # Branch push to main
+                  - !Sub 'repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/main'
+                  # Deploy job runs in environment "dev"
+                  - !Sub 'repo:${GitHubOrg}/${GitHubRepo}:environment:dev'
+                  # Plan job runs on pull requests
+                  - !Sub 'repo:${GitHubOrg}/${GitHubRepo}:pull_request'
+      ManagedPolicyArns:
+        - !Ref TerraformDeployPolicy
+
+  TerraformDeployPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${RoleName}-policy'
+      Description: 'Permissions the GitHub-Actions role needs to terraform-apply the WC2026 demo.'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ApiGateway
+            Effect: Allow
+            Action:
+              - apigateway:*
+            Resource: '*'
+
+          - Sid: Lambda
+            Effect: Allow
+            Action:
+              - lambda:*
+            Resource: '*'
+
+          - Sid: Cognito
+            Effect: Allow
+            Action:
+              - cognito-idp:*
+            Resource: '*'
+
+          - Sid: CloudWatchLogs
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:DeleteLogGroup
+              - logs:DescribeLogGroups
+              - logs:PutRetentionPolicy
+              - logs:TagResource
+              - logs:UntagResource
+              - logs:ListTagsForResource
+            Resource: '*'
+
+          - Sid: Iam
+            Effect: Allow
+            Action:
+              - iam:CreateRole
+              - iam:DeleteRole
+              - iam:GetRole
+              - iam:UpdateAssumeRolePolicy
+              - iam:AttachRolePolicy
+              - iam:DetachRolePolicy
+              - iam:PutRolePolicy
+              - iam:DeleteRolePolicy
+              - iam:GetRolePolicy
+              - iam:ListAttachedRolePolicies
+              - iam:ListRolePolicies
+              - iam:TagRole
+              - iam:UntagRole
+              - iam:ListRoleTags
+              - iam:PassRole
+              - iam:CreatePolicy
+              - iam:DeletePolicy
+              - iam:GetPolicy
+              - iam:GetPolicyVersion
+              - iam:ListPolicyVersions
+              - iam:CreatePolicyVersion
+              - iam:DeletePolicyVersion
+            # Scope IAM writes to roles/policies this stack manages.
+            Resource:
+              - !Sub 'arn:aws:iam::${AWS::AccountId}:role/mcgw-*'
+              - !Sub 'arn:aws:iam::${AWS::AccountId}:policy/mcgw-*'
+
+Outputs:
+  RoleArn:
+    Description: Paste this into the AWS_DEPLOY_ROLE_ARN GitHub secret.
+    Value: !GetAtt GitHubActionsRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'
+
+  OidcProviderArn:
+    Condition: ShouldCreateOidcProvider
+    Description: Newly created GitHub OIDC provider ARN.
+    Value: !Ref GitHubOidcProvider

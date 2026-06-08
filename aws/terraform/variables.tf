@@ -37,15 +37,15 @@ variable "lambda_runtime" {
 }
 
 variable "lambda_memory_mb" {
-  description = "Memory allocation for the worldcup Lambda."
+  description = "Memory allocation for the worldcup Lambda. Default 128 MB keeps a single invocation at 0.125 GB-s, so the 400,000 GB-s/month perpetual free tier covers ~3.2M invocations of 1s each."
   type        = number
-  default     = 256
+  default     = 128
 }
 
 variable "lambda_timeout_seconds" {
-  description = "Timeout for the worldcup Lambda."
+  description = "Timeout for the worldcup Lambda. Default 3 s caps the GB-s blast radius if the function ever hangs (still well above the mocked handler's typical <50 ms runtime)."
   type        = number
-  default     = 5
+  default     = 3
 }
 
 variable "cognito_domain_prefix" {
@@ -68,7 +68,7 @@ variable "cognito_logout_urls" {
 }
 
 variable "create_machine_to_machine_client" {
-  description = "Create a Cognito app client supporting OAuth2 client credentials (no user)."
+  description = "Create a Cognito app client supporting OAuth2 client_credentials (no user). NOTE: M2M tokens are billed at $6 per 1,000 token requests with no free tier (Cognito pricing, Nov 2023+). Default is `false` so the baseline deploy stays inside perpetual free tier; flip to `true` only when you want to demo the M2M flow."
   type        = bool
-  default     = true
+  default     = false
 }

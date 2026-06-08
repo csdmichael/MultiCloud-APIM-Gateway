@@ -55,12 +55,18 @@ The API `worldcup-mocked` already exists under a different path or display name.
 az apim api delete --service-name apim-poc-my-dev --resource-group ai-myaacoub --api-id worldcup-mocked
 ```
 
-## H. Terraform `aws_apigatewayv2_authorizer` complains about empty audience
+## H. JWT requests fail with 401 when only the interactive client is deployed
 
-Happens when `create_machine_to_machine_client = false` and the `compact()` in `apigateway.tf` leaves no entries. Either:
+With `create_machine_to_machine_client = false` (the free-tier-safe default)
+no M2M app client is created and the authorizer's `audience` list contains
+only the interactive client id. M2M `client_credentials` token requests will
+fail because the issuer has no M2M client to mint them against. To enable
+the M2M flow:
 
-* Set `create_machine_to_machine_client = true` (default).
-* Add at least one app client id manually to the `audience` list.
+* Set `create_machine_to_machine_client = true` and `terraform apply`.
+  Note: Cognito charges $6 per 1,000 M2M token requests with no free tier.
+* Or add the audience of an externally-managed app client to the `audience`
+  list in `apigateway.tf` and `terraform apply`.
 
 ## I. Lambda returns 502 from API Gateway
 

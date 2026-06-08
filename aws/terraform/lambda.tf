@@ -4,7 +4,7 @@
 
 resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/${local.prefix}-worldcup"
-  retention_in_days = 14
+  retention_in_days = 7 # keep storage well under the 5 GB perpetual free tier
 }
 
 resource "aws_lambda_function" "worldcup" {

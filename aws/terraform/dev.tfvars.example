@@ -2,6 +2,15 @@
 # Multi-Cloud APIM Gateway — AWS Terraform — example tfvars
 # -----------------------------------------------------------------------------
 # Copy to `dev.auto.tfvars` (which is gitignored) and customize.
+#
+# Defaults below are tuned for AWS Free Tier:
+#   * Lambda  : 128 MB / 3 s  →  fits 400,000 GB-s/month (perpetual free)
+#   * Cognito : interactive client only (50K MAU perpetual free)
+#   * M2M     : OFF by default (M2M tokens are $6/1K with no free tier)
+#   * Logs    : 7-day retention (under 5 GB storage perpetual free)
+#   * API GW  : HTTP API — 1M req/month free for the first 12 months of the
+#               AWS account, then $1 per million requests. No perpetual free
+#               substitute exists for the JWT-protected demo.
 # =============================================================================
 
 aws_region            = "us-east-1"
@@ -15,4 +24,8 @@ cognito_domain_prefix = ""
 cognito_callback_urls = ["http://localhost:8080/callback"]
 cognito_logout_urls   = ["http://localhost:8080/"]
 
-create_machine_to_machine_client = true
+# Flip to `true` only when you want to demo the M2M (client_credentials) flow.
+# Token requests against the M2M client are billed from request #1 — there is
+# no free tier for Cognito M2M tokens. The interactive (code-flow) client and
+# user-pool MAU are free up to 50,000 MAU/month.
+create_machine_to_machine_client = false

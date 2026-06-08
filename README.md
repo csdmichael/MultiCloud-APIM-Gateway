@@ -24,7 +24,8 @@ A production-style demo of **Azure API Management** acting as an AI gateway in f
 7. [Observability](#observability)
 8. [Documentation index](#documentation-index)
 9. [Troubleshooting & limitations](#troubleshooting--limitations)
-10. [Project status](#project-status)
+10. [AWS cost / Free Tier](#aws-cost--free-tier)
+11. [Project status](#project-status)
 
 ---
 
